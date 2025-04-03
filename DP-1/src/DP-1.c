@@ -27,13 +27,6 @@ void cleanup(int sig)
     exit(0);
 }
 
-union semun
-{
-    int val;               // Value for SETVAL
-    struct semid_ds *buf;  // Buffer for IPC_STAT, IPC_SET
-    unsigned short *array; // Array for GETALL, SETALL
-};
-
 int create_semaphore()
 {
     key_t sem_key = ftok(SEM_KEY_PATH, SEM_KEY_ID);
@@ -152,9 +145,7 @@ int main()
     {
         // Parent (DP-1 continues)
         printf("DP-2 launched with PID %d\n", pid);
-
-        struct sembuf lock = {0, -1, SEM_UNDO};
-        struct sembuf unlock = {0, 1, SEM_UNDO};
+       
         // DP-1 main loop
         while (1)
         {

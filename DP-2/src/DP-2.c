@@ -1,7 +1,3 @@
-
-
-// 1 char then sleep 1/20 second, remember to check space left enough for 1
-
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/sem.h>
@@ -14,8 +10,24 @@
 #include <time.h>
 #include "../../common/hs.h"
 
+
+static shared_memory *shm_ptr_global = NULL;
+
+// --- Signal Handler ---
+void cleanup(int sig)
+{
+    if (shm_ptr_global != NULL && shm_ptr_global != (void *)-1)
+    {
+        shmdt(shm_ptr_global); // Only detach
+    }
+    exit(0);
+}
+
 int main(int argc, char *argv[])
 {
+    srand(time(NULL));       // Seed random generator
+    signal(SIGINT, cleanup); // Register signal handler
+    
     // Validate argument count
     if (argc != 2)
     {
@@ -63,12 +75,15 @@ int main(int argc, char *argv[])
 
     if (dc_pid < 0)
     {
-        // Fork failed
         perror("fork failed");
-        exit(EXIT_FAILURE);
+        if (shm_ptr_global != NULL && shm_ptr_global != (void *)-1)
+        {
+            shmdt(shm_ptr_global); // Detach before error exit
+        }
+        exit(1); // Exit with error status
     }
     else if (dc_pid == 0)
-    {       
+    {
         // Execute the DC program
         // Arguments for DC's main: argv[0]=program name, argv[1]=shmID, argv[2]=DP1_PID, argv[3]=DP2_PID
         int exec_ret = execl("../../dc/bin/dc", "dc", shm_id_str, dp1_pid_str, dp2_pid_str, (char *)NULL);
@@ -76,9 +91,13 @@ int main(int argc, char *argv[])
         // If execl returns, it means an error occurred
         if (exec_ret == -1)
         {
-            perror("execl failed to launch DC");
-            // Use _exit in child after fork on error to avoid flushing parent's stdio buffers
-            _exit(EXIT_FAILURE);
+            perror("execl failed");
+            // Detach before exiting on error
+            if (shm_ptr_global != NULL && shm_ptr_global != (void *)-1)
+            {
+                shmdt(shm_ptr_global); // Detach before error exit
+            }
+            exit(1); // Exit with error status
         }
     }
     else
@@ -86,21 +105,45 @@ int main(int argc, char *argv[])
         printf("DP-2: Successfully launched DC process with PID: %d\n", dc_pid); // Debugging print
 
         // Attach shared memory
-        shared_memory *shm = (shared_memory *)shmat(shm_id, NULL, 0);
-        if (shm == (void *)-1)
+        shm_ptr_global = (shared_memory *)shmat(shm_id, NULL, 0);
+        if (shm_ptr_global == (void *)-1)
         {
             perror("shmat failed");
             exit(1);
         }
-        printf("DP-2: Attached to shared memory at address: %p\n", (void*)shm); // Debugging print
-
+        printf("DP-2: Attached to shared memory at address: %p\n", (void *)shm_ptr_global); // Debugging print
 
         while (1)
         {
+
+            // --- Acquire Semaphore ---
+            // Wait until the semaphore is available (value > 0) and decrement it.
+            if (semop(sem_id, &lock, 1) == -1)
+            {
+                perror("DP-2 semop failed");
+                break;
+            }
+
+            int availableSpace = (shm_ptr_global->read_index - shm_ptr_global->write_index - 1 + BUFFER) % BUFFER;
+            if (availableSpace >= 1)
+            {
+                char random_char = 'A' + (rand() % 20);
+                shm_ptr_global->buffer[shm->write_index] = random_char;
+                // Update write index circularly.
+                shm_ptr_global->write_index = (shm->write_index + 1) % BUFFER;
+                printf("DP-2 wrote 1 character.\n"); // Debugging
+            }
+
+            // Unlock semaphore
+            if (semop(sem_id, &unlock, 1) == -1)
+            {
+                perror("DP-2 semop failed");
+                break;
+            }
+
+            usleep(50000);// 1/20 second
         }
     }
 
-        
-
-        return 0;
-    }
+    return 0;
+}
