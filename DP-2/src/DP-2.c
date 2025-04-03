@@ -16,9 +16,6 @@
 
 int main(int argc, char *argv[])
 {
-    // Print received arguments
-    printf("DP-2 started!\n");
-
     // Validate argument count
     if (argc != 2)
     {
@@ -46,7 +43,6 @@ int main(int argc, char *argv[])
         perror("semget failed in DP-2");
         exit(1);
     }
-    printf("DP-2 obtained semaphore ID: %d\n", sem_id);
 
     // --- Get PIDs ---
     pid_t dp2_pid = getpid();
@@ -63,7 +59,6 @@ int main(int argc, char *argv[])
     sprintf(dp2_pid_str, "%d", dp2_pid);
 
     // --- Fork and Launch DC ---
-    printf("DP-2: Forking to launch DC...\n"); // Debugging print
     pid_t dc_pid = fork();
 
     if (dc_pid < 0)
@@ -73,10 +68,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
     else if (dc_pid == 0)
-    {
-        // --- This is the Child Process (DC) ---
-        printf("DP-2's Child: Attempting to exec DC...\n"); // Debugging print
-
+    {       
         // Execute the DC program
         // Arguments for DC's main: argv[0]=program name, argv[1]=shmID, argv[2]=DP1_PID, argv[3]=DP2_PID
         int exec_ret = execl("../../dc/bin/dc", "dc", shm_id_str, dp1_pid_str, dp2_pid_str, (char *)NULL);

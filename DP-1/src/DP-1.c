@@ -8,6 +8,24 @@
 #include <unistd.h>
 #include <signal.h>
 #include "../../common/hs.h"
+#include <time.h> // For srand
+
+#define BUFFER 256
+
+// --- Globals for Signal Handler ---
+static int sem_id_global = -1;
+static int shm_id_global = -1;
+static shared_memory *shm_ptr_global = NULL;
+
+// --- Signal Handler ---
+void cleanup(int sig)
+{
+    if (shm_ptr_global != NULL && shm_ptr_global != (void *)-1)
+    {
+        shmdt(shm_ptr_global); // Only detach
+    }
+    exit(0);
+}
 
 union semun
 {
@@ -15,30 +33,32 @@ union semun
     struct semid_ds *buf;  // Buffer for IPC_STAT, IPC_SET
     unsigned short *array; // Array for GETALL, SETALL
 };
-static int sem_id_global;
-
-// Signal handler for cleanup
-void cleanup(int sig, int shm_id)
-{
-    printf("\nCleaning up...\n");
-    semctl(sem_id_global, 0, IPC_RMID);
-    shmctl(shm_id, IPC_RMID, NULL);
-    exit(0);
-}
 
 int create_semaphore()
 {
-    key_t sem_key = ftok(SEM_KEY_PATH, SEM_KEY_ID);    // Different key from shared memory
-    int sem_id = semget(sem_key, 1, IPC_CREAT | 0666); // 1 semaphore
+    key_t sem_key = ftok(SEM_KEY_PATH, SEM_KEY_ID);
+    int sem_id = semget(sem_key, 1, 0666);
     if (sem_id == -1)
     {
-        perror("semget failed");
-        exit(1);
+        if (errno == ENOENT)
+        { // Doesn't exist, create it
+            sem_id = semget(sem_key, 1, IPC_CREAT | 0666);
+            if (sem_id == -1)
+            {
+                perror("semget failed");
+                exit(1);
+            }
+        }
+        else
+        {
+            perror("semget failed");
+            exit(1);
+        }
     }
 
-    // Initialize semaphore value to 0 (locked)
+    // Initialize semaphore value to 1 (unlocked)
     union semun arg;
-    arg.val = 0;
+    arg.val = 1;
     if (semctl(sem_id, 0, SETVAL, arg) == -1)
     {
         perror("semctl (SETVAL) failed");
@@ -49,7 +69,7 @@ int create_semaphore()
     return sem_id;
 }
 
-int create_or_attach_shm()
+int create_or_get_shm()
 {
     key_t key = ftok(".", 'S');
     if (key == -1)
@@ -63,12 +83,6 @@ int create_or_attach_shm()
     if (shm_id != -1)
     {
         printf("Attached to existing shared memory (ID: %d)\n", shm_id);
-        shared_memory *shm = (shared_memory *)shmat(shm_id, NULL, 0);
-        if (shm == (void *)-1)
-        {
-            perror("shmat failed");
-            exit(1);
-        }
         return shm_id;
     }
 
@@ -80,51 +94,43 @@ int create_or_attach_shm()
         exit(1);
     }
 
-    // Initialize
-    shared_memory *shm = (shared_memory *)shmat(shm_id, NULL, 0);
-    shm->write_index = 0;
-    shm->read_index = 0;
-    memset(shm->buffer, 0, 256);
-    printf("Created new shared memory (ID: %d)\n", shm_id);
     return shm_id;
 }
 
-// ???
-void detach_shared_memory(shared_memory *shm)
+void writeChars(int chars_to_write, shared_memory *shm)
 {
-    if (shmdt(shm) == -1)
+    for (int i = 0; i < chars_to_write; i++)
     {
-        perror("shmdt failed");
+        char random_char = 'A' + (rand() % 20);
+        shm->buffer[shm->write_index] = random_char;
+        // Update write index circularly.
+        shm->write_index = (shm->write_index + 1) % BUFFER;
     }
+    printf("DP-1 wrote %d characters.\n", chars_to_write); // Debugging
 }
-
-// the write index needs to wrap around when reach 256
-// make sure never never write past the read index ( used by DC )
-// if DP is about to overtake to the read-index, go into sleep mode
-
-// after DP-2 attched to the sm, usiing semaphore to write to the sharedMemory
-// 20 chars then sleep 2 seconds, remember to check space left enough for 20 or not
 
 int main()
 {
-    // Register signal handler
-    signal(SIGINT, cleanup);
+    srand(time(NULL));       // Seed random generator
+    signal(SIGINT, cleanup); // Register signal handler
 
     // Create shared memory
-    int shm_id = create_or_attach_shm();
+    shm_id_global = create_or_get_shm();
     // attaching shared memory to get the pointer
-    shared_memory *shm = (shared_memory *)shmat(shm_id, NULL, 0);
-    if (shm == (void *)-1)
+    shm_ptr_global = (shared_memory *)shmat(shm_id_global, NULL, 0);
+    if (shm_ptr_global == (void *)-1)
     {
         perror("shmat failed");
         exit(1);
     }
-    // Create semaphore
-    int sem_id_global = create_semaphore();
 
-    printf("Shared memory created. shm_id = %d\n", shm_id);
-    printf("Buffer starts at %p, write_index = %d, read_index = %d\n",
-           shm->buffer, shm->write_index, shm->read_index);
+    // protentally incorrect when sm exsits
+    shm_ptr_global->write_index = 0;
+    shm_ptr_global->read_index = 0;
+    memset(shm_ptr_global->buffer, 0, BUFFER);
+
+    // Create semaphore
+    sem_id_global = create_semaphore();
 
     // Fork DP-2 and pass both shm_id and sem_id
     pid_t pid = fork();
@@ -132,28 +138,46 @@ int main()
     {
         // Child process (DP-2)
         char shm_str[20];
-        sprintf(shm_str, "%d", shm_id);
+        sprintf(shm_str, "%d", shm_id_global);
         execl("../../DP-2/bin/DP-2", "DP-2", shm_str, NULL);
         perror("execl failed");
-        exit(1);
+        // Detach before exiting on error
+        if (shm_ptr_global != NULL && shm_ptr_global != (void *)-1)
+        {
+            shmdt(shm_ptr_global); // Detach before error exit
+        }
+        exit(1); // Exit with error status
     }
     else if (pid > 0)
     {
         // Parent (DP-1 continues)
         printf("DP-2 launched with PID %d\n", pid);
 
+        struct sembuf lock = {0, -1, SEM_UNDO};
+        struct sembuf unlock = {0, 1, SEM_UNDO};
         // DP-1 main loop
         while (1)
         {
-            struct sembuf lock = {0, -1, 0};
-            struct sembuf unlock = {0, 1, 0};
 
-            // Lock semaphore
-            semop(sem_id_global, &lock, 1);
-            printf("it's locking\n");
+            // --- Acquire Semaphore ---
+            // Wait until the semaphore is available (value > 0) and decrement it.
+            if (semop(sem_id_global, &lock, 1) == -1)
+            {
+                perror("DP-1 semop failed");
+                break;
+            }
+
+            // when r is 10 w is 8, we can't write at 9 because then w will be 10, it's called overtake
+            int availableSpace = (shm_ptr_global->read_index - shm_ptr_global->write_index - 1 + BUFFER) % BUFFER;
+            int charsToWrite = availableSpace >= 20 ? 20 : availableSpace;
+            writeChars(charsToWrite, shm_ptr_global);
 
             // Unlock semaphore
-            semop(sem_id_global, &unlock, 1);
+            if (semop(sem_id_global, &unlock, 1) == -1)
+            {
+                perror("DP-1 semop failed");
+                break;
+            }
 
             sleep(2);
         }
@@ -161,7 +185,11 @@ int main()
     else
     {
         perror("fork failed");
-        exit(1);
+        if (shm_ptr_global != NULL && shm_ptr_global != (void *)-1)
+        {
+            shmdt(shm_ptr_global); // Detach before error exit
+        }
+        exit(1); // Exit with error status
     }
 
     return 0;
