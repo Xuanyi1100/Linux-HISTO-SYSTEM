@@ -128,9 +128,9 @@ int main(int argc, char *argv[])
             if (availableSpace >= 1)
             {
                 char random_char = 'A' + (rand() % 20);
-                shm_ptr_global->buffer[shm->write_index] = random_char;
+                shm_ptr_global->buffer[shm_ptr_global->write_index] = random_char;
                 // Update write index circularly.
-                shm_ptr_global->write_index = (shm->write_index + 1) % BUFFER;
+                shm_ptr_global->write_index = (shm_ptr_global->write_index + 1) % BUFFER;
                 printf("DP-2 wrote 1 character.\n"); // Debugging
             }
 

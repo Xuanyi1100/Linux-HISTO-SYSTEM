@@ -10,8 +10,6 @@
 #include "../../common/hs.h"
 #include <time.h> // For srand
 
-#define BUFFER 256
-
 // --- Globals for Signal Handler ---
 static int sem_id_global = -1;
 static int shm_id_global = -1;
