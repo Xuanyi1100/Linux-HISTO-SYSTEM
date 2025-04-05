@@ -119,7 +119,7 @@ int main(int argc, char *argv[])
         }
 
         // Determine how many characters are available to read
-        int available_to_read = (shm_ptr->write_index - shm_ptr->read_index + BUFFER) % BUFFER;
+        int available_to_read = (shm_ptr_global->write_index - shm_ptr_global->read_index + BUFFER) % BUFFER;
 
         // read all that can be read
         for(int i = 0; i < available_to_read; i++)
@@ -150,7 +150,7 @@ int main(int argc, char *argv[])
         if (semop(sem_id, &lock, 1) == 0)
         {
            // Determine how many characters are available to read
-        int available_to_read = (shm_ptr->write_index - shm_ptr->read_index + BUFFER) % BUFFER;
+        int available_to_read = (shm_ptr_global->write_index - shm_ptr_global->read_index + BUFFER) % BUFFER;
 
         // read all that can be read
         for(int i = 0; i < available_to_read; i++)
