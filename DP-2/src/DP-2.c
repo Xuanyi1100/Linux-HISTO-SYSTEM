@@ -1,3 +1,15 @@
+/**
+ * @file DP-2.c
+ * @brief Data Producer 2 (DP-2) for histogram system
+ * Date: 2025-04-05
+ * Sp_05
+ * Group member: Deyi, Zhizheng
+ * Secondary producer process launched by DP-1. Generates random
+ * characters ('A'-'T') individually and writes them to shared
+ * memory. Forks DC process.
+ * 
+ * Usage: ./DP-2 <shm_id>
+ */
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/sem.h>
@@ -14,6 +26,12 @@
 static shared_memory *shm_ptr_global = NULL;
 
 // --- Signal Handler ---
+/**
+ * @brief SIGINT handler for cleanup
+ * @param sig Signal number
+ * 
+ * Detaches shared memory before exiting
+ */
 void cleanup(int sig)
 {
     if (shm_ptr_global != NULL && shm_ptr_global != (void *)-1)
@@ -23,6 +41,16 @@ void cleanup(int sig)
     exit(0);
 }
 
+/**
+ * @brief Main DP-2 program
+ * 
+ * @param argc Argument count
+ * @param argv Arguments: [program_name, shm_id]
+ * @return int Exit status
+ * 
+ * Attaches to existing shared memory, forks DC process,
+ * and runs fast production loop with 50ms intervals
+ */
 int main(int argc, char *argv[])
 {
     srand(time(NULL));       // Seed random generator
@@ -37,7 +65,7 @@ int main(int argc, char *argv[])
 
     // Get Shared Memory ID
     int shm_id = atoi(argv[1]);
-    if (shm_id <= 0)
+    if (shm_id < 0)
     {
         fprintf(stderr, "Invalid shared memory ID: %s\n", argv[1]);
         exit(EXIT_FAILURE);
@@ -59,7 +87,6 @@ int main(int argc, char *argv[])
     // --- Get PIDs ---
     pid_t dp2_pid = getpid();
     pid_t dp1_pid = getppid();
-    printf("DP-2 PID: %d, Parent (DP-1) PID: %d\n", dp2_pid, dp1_pid); // Debugging print
 
     // --- Prepare arguments for DC ---
     char shm_id_str[20];
@@ -102,8 +129,6 @@ int main(int argc, char *argv[])
     }
     else
     {
-        printf("DP-2: Successfully launched DC process with PID: %d\n", dc_pid); // Debugging print
-
         // Attach shared memory
         shm_ptr_global = (shared_memory *)shmat(shm_id, NULL, 0);
         if (shm_ptr_global == (void *)-1)
@@ -111,7 +136,6 @@ int main(int argc, char *argv[])
             perror("shmat failed");
             exit(1);
         }
-        printf("DP-2: Attached to shared memory at address: %p\n", (void *)shm_ptr_global); // Debugging print
 
         while (1)
         {
@@ -131,7 +155,6 @@ int main(int argc, char *argv[])
                 shm_ptr_global->buffer[shm_ptr_global->write_index] = random_char;
                 // Update write index circularly.
                 shm_ptr_global->write_index = (shm_ptr_global->write_index + 1) % BUFFER;
-                printf("DP-2 wrote 1 character.\n"); // Debugging
             }
 
             // Unlock semaphore

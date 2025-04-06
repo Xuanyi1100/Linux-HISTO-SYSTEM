@@ -1,3 +1,16 @@
+/**
+ * @file DP-1.c
+ * @brief Data Producer 1 (DP-1) for histogram system
+ * 
+ * Date: 2025-04-05
+ * Sp_05
+ * Group member: Deyi, Zhizheng
+ * Main producer process that creates shared memory and semaphores.
+ * Generates random characters ('A'-'T') in batches and writes them
+ * to shared memory. Forks DP-2 process.
+ * 
+ * Usage: ./DP-1
+ */
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <stdio.h>
@@ -16,6 +29,12 @@ static int shm_id_global = -1;
 static shared_memory *shm_ptr_global = NULL;
 
 // --- Signal Handler ---
+/**
+ * @brief SIGINT handler for cleanup
+ * @param sig Signal number
+ * 
+ * Detaches shared memory before exiting
+ */
 void cleanup(int sig)
 {
     if (shm_ptr_global != NULL && shm_ptr_global != (void *)-1)
@@ -25,6 +44,13 @@ void cleanup(int sig)
     exit(0);
 }
 
+/**
+ * @brief Creates or gets semaphore
+ * @return int Semaphore ID
+ * 
+ * Creates new semaphore with 0666 permissions if not exists,
+ * otherwise gets existing one. Initializes to unlocked state (1).
+ */
 int create_semaphore()
 {
     key_t sem_key = ftok(SEM_KEY_PATH, SEM_KEY_ID);
@@ -55,11 +81,13 @@ int create_semaphore()
         perror("semctl (SETVAL) failed");
         exit(1);
     }
-
-    printf("Semaphore created and initialized (ID: %d)\n", sem_id);
     return sem_id;
 }
 
+/**
+ * @brief Creates or gets shared memory segment
+ * @return int Shared memory ID
+ */
 int create_or_get_shm()
 {
     key_t key = ftok(".", 'S');
@@ -73,7 +101,6 @@ int create_or_get_shm()
     int shm_id = shmget(key, sizeof(shared_memory), 0666);
     if (shm_id != -1)
     {
-        printf("Attached to existing shared memory (ID: %d)\n", shm_id);
         return shm_id;
     }
 
@@ -88,6 +115,14 @@ int create_or_get_shm()
     return shm_id;
 }
 
+/**
+ * @brief Writes characters to shared memory buffer
+ * 
+ * @param chars_to_write Number of characters to generate
+ * @param shm Pointer to shared memory structure
+ * 
+ * Generates random characters 'A'-'T' and writes to buffer
+ */
 void writeChars(int chars_to_write, shared_memory *shm)
 {
     for (int i = 0; i < chars_to_write; i++)
@@ -97,9 +132,14 @@ void writeChars(int chars_to_write, shared_memory *shm)
         // Update write index circularly.
         shm->write_index = (shm->write_index + 1) % BUFFER;
     }
-    printf("DP-1 wrote %d characters.\n", chars_to_write); // Debugging
 }
 
+/**
+ * @brief Main DP-1 program
+ * 
+ * Initializes shared memory and semaphores, forks DP-2,
+ * and runs main production loop with 2-second intervals
+ */
 int main()
 {
     srand(time(NULL));       // Seed random generator
@@ -140,10 +180,7 @@ int main()
         exit(1); // Exit with error status
     }
     else if (pid > 0)
-    {
-        // Parent (DP-1 continues)
-        printf("DP-2 launched with PID %d\n", pid);
-       
+    {      
         // DP-1 main loop
         while (1)
         {

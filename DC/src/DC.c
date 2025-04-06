@@ -1,3 +1,15 @@
+/**
+ * @file DC.c
+ * @brief Data Collector (DC) for histogram system
+* Date: 2025-04-05
+ * Sp_05
+ * Group member: Deyi, Zhizheng
+ * This program collects character data from shared memory, maintains a histogram,
+ * and displays it periodically. It coordinates with DP-1 and DP-2 processes using
+ * semaphores and shared memory. Handles SIGINT for clean termination.
+ * 
+ * Usage: ./dc <shared_memory_id> <dp1_pid> <dp2_pid>
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -21,7 +33,13 @@ int letter_counts[26] = {0};
 const int display_interval = 5;        // Display every 5 * 2 seconds = 10 seconds
 int alarm_counter = 0; 
 
-// display
+/**
+ * @brief Displays histogram of character frequencies
+ * 
+ * Clears the screen and prints a histogram showing frequency distribution
+ * of characters 'A'-'T' using stars, pluses and minuses for hundreds, tens
+ * and units respectively.
+ */
 void display_histogram()
 {
     system("clear");  // Clear screen
@@ -32,7 +50,7 @@ void display_histogram()
         long long tens = (count % 100) / 10;
         long long ones = count % 10;
 
-        printf("%c-%03lld ", letter, count); // Print letter and count (e.g., A-058)
+        printf("%c-%03lld ", letter, count); // Print letter and count
 
         for(int j = 0; j < hundreds; ++j) printf("*");
         for(int j = 0; j < tens; ++j) printf("+");
@@ -42,6 +60,13 @@ void display_histogram()
     fflush(stdout); // Ensure output is immediately visible
 }
 // --- Signal Handler ---
+/**
+ * @brief SIGINT handler for clean termination
+ * 
+ * @param sig Signal number (should be SIGINT)
+ * 
+ * Sends SIGINT to DP processes and sets termination flag
+ */
 void timeToQuit(int sig)
 {
     // this handler should only set the flag and call kill. It must not do anything else
@@ -50,6 +75,13 @@ void timeToQuit(int sig)
     terminate_flag = 1;
 
 }
+/**
+ * @brief SIGALRM handler for periodic wakeups
+ * 
+ * @param signum Signal number (should be SIGALRM)
+ * 
+ * Manages display timing by counting 2-second intervals
+ */
 void wakeup_handler(int signum) {
 
     alarm(2);
@@ -61,13 +93,20 @@ void wakeup_handler(int signum) {
     }
     
 }
-
+/**
+ * @brief Main DC program
+ * 
+ * @param argc Argument count
+ * @param argv Arguments: [program_name, shm_id, dp1_pid, dp2_pid]
+ * @return int Exit status
+ * 
+ * Sets up signal handlers, attaches to shared memory, manages semaphores,
+ * and runs main collection loop with periodic display updates.
+ */
 int main(int argc, char *argv[])
 {
     signal(SIGINT, timeToQuit);
     signal(SIGALRM, wakeup_handler);
-
-    printf("DC starts\n");
 
     if (argc != 4)
     {
@@ -89,7 +128,6 @@ int main(int argc, char *argv[])
         perror("shmat failed");
         exit(1);
     }
-    printf("DC: Attached to shared memory at address: %p\n", (void *)shm_ptr_global); // Debugging print
 
     // --- Get Semaphore  ---
     key_t sem_key = ftok(SEM_KEY_PATH, SEM_KEY_ID);

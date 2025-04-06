@@ -1,3 +1,11 @@
+/**
+ * @file hs.h
+ * @brief Common definitions for histogram system
+ * 
+ * Contains shared memory structure definition, semaphore
+ * constants, and synchronization primitives for the
+ * producer-consumer system.
+ */
 #ifndef HISTO_SYSTEM_H
 #define HISTO_SYSTEM_H
 
